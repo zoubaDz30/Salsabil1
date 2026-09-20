@@ -12,22 +12,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract zip file if exists
+      - name: Unpack all zip archives
         run: |
-          # البحث عن أي ملف zip وفك ضغطه في المجلد الحالي
-          for f in *.zip; do
-            if [ -f "$f" ]; then
-              echo "Extracting $f..."
-              unzip -o "$f"
-            fi
-          done
-          # نقل الملفات إذا كانت داخل مجلد فرعي تم فك ضغطه
-          if [ ! -f "gradlew" ]; then
-            SUBDIR=$(find . -maxdepth 2 -name "gradlew" -exec dirname {} \;)
-            if [ -n "$SUBDIR" ] && [ "$SUBDIR" != "." ]; then
-              echo "Moving files from $SUBDIR to root..."
-              cp -r $SUBDIR/* .
-            fi
+          sudo apt-get update && sudo apt-get install -y unzip
+          # فك ضغط أي ملف ينتهي بـ .zip مهما كان اسمه
+          find . -maxdepth 2 -type f -iname "*.zip" -exec unzip -o {} -d ./extracted \;
+          
+          # نقل محتويات المجلد المفكوك إلى المجلد الرئيسي
+          if [ -d "./extracted" ]; then
+            cp -r ./extracted/* . 2>/dev/null || true
+            # إذا كانت الملفات داخل مجلد إضافي
+            find ./extracted -name "build.gradle*" -exec dirname {} \; | head -n 1 | while read dir; do
+              cp -r "$dir"/* . 2>/dev/null || true
+            done
           fi
 
       - name: Set up JDK 17
@@ -36,11 +33,17 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          else
+            gradle assembleDebug --no-daemon --stacktrace
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
